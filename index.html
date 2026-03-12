@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ticket to Ride — Statistik</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Mono:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0e0c0a;
+    --surface: #1a1714;
+    --border: #2e2a24;
+    --accent-red: #c0392b;
+    --accent-gold: #d4a843;
+    --accent-green: #2e7d52;
+    --text: #e8e0d0;
+    --muted: #7a6e5f;
+    --tor: #e8845a;
+    --oli: #5a9fd4;
+    --christian: #7db87a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .track-border {
+    height: 12px;
+    background: repeating-linear-gradient(
+      90deg,
+      var(--accent-red) 0px, var(--accent-red) 30px,
+      var(--border) 30px, var(--border) 36px,
+      var(--accent-gold) 36px, var(--accent-gold) 66px,
+      var(--border) 66px, var(--border) 72px
+    );
+    opacity: 0.7;
+  }
+
+  header {
+    padding: 48px 40px 32px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  .logo-area h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 900;
+    letter-spacing: -1px;
+    line-height: 1;
+  }
+  .logo-area h1 span { color: var(--accent-red); }
+  .logo-area p { margin-top: 8px; color: var(--muted); font-size: 0.75rem; letter-spacing: 3px; text-transform: uppercase; }
+
+  .header-right { display: flex; align-items: center; gap: 32px; flex-wrap: wrap; }
+
+  .header-stats { display: flex; gap: 32px; }
+  .header-stat .val { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--accent-gold); line-height: 1; }
+  .header-stat .lbl { font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; margin-top: 4px; }
+
+  /* Auth button */
+  #auth-area { display: flex; align-items: center; gap: 12px; }
+  .auth-status { font-size: 0.7rem; color: var(--muted); }
+  .auth-status.connected { color: var(--accent-green); }
+  .btn-auth {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-auth:hover { border-color: var(--accent-gold); color: var(--accent-gold); }
+
+  nav {
+    display: flex;
+    gap: 2px;
+    padding: 0 40px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  nav button {
+    background: none; border: none; color: var(--muted);
+    font-family: 'DM Mono', monospace; font-size: 0.75rem;
+    letter-spacing: 2px; text-transform: uppercase;
+    padding: 16px 20px; cursor: pointer;
+    border-bottom: 2px solid transparent; transition: all 0.2s;
+  }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--accent-gold); border-bottom-color: var(--accent-gold); }
+
+  .page { display: none; padding: 40px; }
+  .page.active { display: block; }
+
+  /* STAT CARDS */
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin-bottom: 40px; border: 1px solid var(--border); }
+  .stat-card { background: var(--surface); padding: 28px 24px; position: relative; overflow: hidden; }
+  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; }
+  .stat-card.tor::before { background: var(--tor); }
+  .stat-card.oli::before { background: var(--oli); }
+  .stat-card.christian::before { background: var(--christian); }
+  .stat-card .player-name { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 3px; color: var(--muted); margin-bottom: 16px; }
+  .stat-card .wins { font-family: 'Playfair Display', serif; font-size: 3.5rem; font-weight: 900; line-height: 1; margin-bottom: 4px; }
+  .stat-card.tor .wins { color: var(--tor); }
+  .stat-card.oli .wins { color: var(--oli); }
+  .stat-card.christian .wins { color: var(--christian); }
+  .stat-card .win-pct { font-size: 0.8rem; color: var(--muted); margin-bottom: 20px; }
+  .stat-mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stat-mini .lbl { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 2px; }
+  .stat-mini .val { font-size: 1rem; color: var(--text); font-weight: 500; }
+
+  /* CHARTS */
+  .charts-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 2px; margin-bottom: 40px; }
+  .chart-card { background: var(--surface); padding: 28px; border: 1px solid var(--border); }
+  .chart-card h3 { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 3px; color: var(--muted); margin-bottom: 24px; }
+  .chart-wrap { position: relative; height: 280px; }
+  .sessions-chart-wrap { position: relative; height: 200px; }
+
+  /* TABLE */
+  .table-section h3 { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 3px; color: var(--muted); margin-bottom: 16px; }
+  .results-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  .results-table th { text-align: left; padding: 10px 14px; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); border-bottom: 1px solid var(--border); }
+  .results-table td { padding: 10px 14px; border-bottom: 1px solid rgba(46,42,36,0.5); vertical-align: middle; }
+  .results-table tr:hover td { background: var(--surface); }
+  .score-tor { color: var(--tor); }
+  .score-oli { color: var(--oli); }
+  .score-christian { color: var(--christian); }
+  .crown { font-size: 0.7rem; margin-left: 3px; }
+  tr.session-header td { background: rgba(46,42,36,0.4); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); padding: 6px 14px; }
+  .closed-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    padding: 1px 7px;
+    border-radius: 2px;
+    border: 1px solid;
+  }
+  .closed-tor { background: rgba(232,132,90,0.12); color: var(--tor); border-color: rgba(232,132,90,0.3); }
+  .closed-oli { background: rgba(90,159,212,0.12); color: var(--oli); border-color: rgba(90,159,212,0.3); }
+  .closed-christian { background: rgba(125,184,122,0.12); color: var(--christian); border-color: rgba(125,184,122,0.3); }
+  .note-badge { display: inline-block; background: rgba(212,168,67,0.15); color: var(--accent-gold); border: 1px solid rgba(212,168,67,0.3); font-size: 0.6rem; padding: 1px 6px; border-radius: 2px; margin-left: 4px; }
+
+  /* FORM */
+  .form-card { background: var(--surface); border: 1px solid var(--border); padding: 40px; max-width: 640px; }
+  .form-card h2 { font-family: 'Playfair Display', serif; font-size: 1.5rem; margin-bottom: 8px; }
+  .form-card p { color: var(--muted); font-size: 0.75rem; margin-bottom: 32px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .form-row-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .form-date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); }
+  .form-group.tor label { color: var(--tor); }
+  .form-group.oli label { color: var(--oli); }
+  .form-group.christian label { color: var(--christian); }
+  .form-group input, .form-group select, .form-group textarea {
+    background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: 'DM Mono', monospace;
+    font-size: 1.1rem; padding: 12px 14px; outline: none;
+    transition: border-color 0.2s; width: 100%;
+  }
+  .form-group select { font-size: 0.85rem; cursor: pointer; }
+  .form-group select option { background: var(--bg); }
+  .form-group.tor input:focus { border-color: var(--tor); }
+  .form-group.oli input:focus { border-color: var(--oli); }
+  .form-group.christian input:focus { border-color: var(--christian); }
+  .form-group input:focus, .form-group select:focus { border-color: var(--accent-gold); }
+  .form-group textarea { resize: vertical; min-height: 60px; font-size: 0.85rem; }
+
+  .btn {
+    background: var(--accent-red); color: white; border: none;
+    font-family: 'DM Mono', monospace; font-size: 0.75rem;
+    letter-spacing: 3px; text-transform: uppercase;
+    padding: 14px 28px; cursor: pointer; transition: all 0.2s;
+    width: 100%; margin-top: 12px;
+  }
+  .btn:hover { background: #a93226; }
+  .btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+
+  .success-msg { display: none; background: rgba(46,125,82,0.15); border: 1px solid var(--accent-green); color: var(--accent-green); padding: 12px 16px; font-size: 0.75rem; margin-top: 12px; text-align: center; }
+  .error-msg { display: none; background: rgba(192,57,43,0.15); border: 1px solid var(--accent-red); color: #e74c3c; padding: 12px 16px; font-size: 0.75rem; margin-top: 12px; text-align: center; }
+
+  /* STREAK SECTION */
+  .streak-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin-bottom: 40px; }
+  .streak-card { background: var(--surface); border: 1px solid var(--border); padding: 24px; }
+  .streak-card .lbl { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 8px; }
+  .streak-card .streak-val { font-family: 'Playfair Display', serif; font-size: 2.5rem; font-weight: 700; line-height: 1; margin-bottom: 4px; }
+  .streak-card .streak-who { font-size: 0.75rem; color: var(--muted); }
+
+  /* SYNC STATUS */
+  .sync-bar { display: flex; align-items: center; gap: 10px; padding: 10px 40px; background: var(--surface); border-bottom: 1px solid var(--border); font-size: 0.7rem; color: var(--muted); }
+  .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+  .sync-dot.ok { background: var(--accent-green); }
+  .sync-dot.loading { background: var(--accent-gold); animation: pulse 1s infinite; }
+  .sync-dot.error { background: var(--accent-red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  @media (max-width: 768px) {
+    header { padding: 24px 20px; }
+    nav { padding: 0 20px; overflow-x: auto; }
+    .page { padding: 20px; }
+    .stat-grid, .charts-grid, .streak-grid { grid-template-columns: 1fr; }
+    .form-row, .form-row-4 { grid-template-columns: 1fr 1fr; }
+    .form-date-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="track-border"></div>
+
+<header>
+  <div class="logo-area">
+    <h1>Ticket<span> to Ride</span></h1>
+    <p>Familiestatistik · Siden november 2022</p>
+  </div>
+  <div class="header-right">
+    <div class="header-stats">
+      <div class="header-stat">
+        <div class="val" id="hdr-games">—</div>
+        <div class="lbl">Spil i alt</div>
+      </div>
+      <div class="header-stat">
+        <div class="val" id="hdr-sessions">—</div>
+        <div class="lbl">Spilleaftener</div>
+      </div>
+    </div>
+    <div id="auth-area">
+      <span class="auth-status" id="auth-status">Ikke logget ind</span>
+      <button class="btn-auth" id="auth-btn" onclick="handleAuth()">Log ind</button>
+    </div>
+  </div>
+</header>
+
+<div class="sync-bar">
+  <div class="sync-dot" id="sync-dot"></div>
+  <span id="sync-text">Klar — log ind for at synkronisere med Google Sheets</span>
+</div>
+
+<nav>
+  <button class="active" onclick="showPage('overblik', this)">Overblik</button>
+  <button onclick="showPage('grafer', this)">Grafer</button>
+  <button onclick="showPage('lukninger', this)">Lukninger</button>
+  <button onclick="showPage('resultater', this)">Alle resultater</button>
+  <button onclick="showPage('indtal', this)">Indtast resultat</button>
+</nav>
+
+<!-- OVERBLIK -->
+<div class="page active" id="page-overblik">
+  <div class="stat-grid" id="stat-cards"></div>
+  <div class="streak-grid" id="streak-cards"></div>
+  <div class="chart-card" style="margin-bottom:40px">
+    <h3>Score-udvikling — alle spil</h3>
+    <div class="chart-wrap"><canvas id="chart-line"></canvas></div>
+  </div>
+</div>
+
+<!-- GRAFER -->
+<div class="page" id="page-grafer">
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h3>Sejrsfordeling</h3>
+      <div class="chart-wrap"><canvas id="chart-wins"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Sejre pr. spiller</h3>
+      <div class="chart-wrap"><canvas id="chart-pie"></canvas></div>
+    </div>
+  </div>
+  <div class="chart-card" style="margin-bottom:40px">
+    <h3>Gennemsnit pr. spilleaften</h3>
+    <div class="sessions-chart-wrap"><canvas id="chart-sessions"></canvas></div>
+  </div>
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h3>Score-fordeling (histogram)</h3>
+      <div class="chart-wrap"><canvas id="chart-hist"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Løbende gennemsnit (10 spil)</h3>
+      <div class="chart-wrap"><canvas id="chart-rolling"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- LUKNINGER -->
+<div class="page" id="page-lukninger">
+  <div class="stat-grid" id="close-stat-cards" style="margin-bottom:40px"></div>
+  <div class="charts-grid" style="margin-bottom:40px">
+    <div class="chart-card">
+      <h3>Lukninger pr. spiller</h3>
+      <div class="chart-wrap"><canvas id="chart-close-pie"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Vinder vs. lukker</h3>
+      <div class="chart-wrap"><canvas id="chart-close-win"></canvas></div>
+    </div>
+  </div>
+  <div class="chart-card" style="margin-bottom:40px">
+    <h3>Gns. score når spilleren lukker vs. ikke lukker</h3>
+    <div class="sessions-chart-wrap"><canvas id="chart-close-score"></canvas></div>
+  </div>
+</div>
+
+<!-- RESULTATER -->
+<div class="page" id="page-resultater">
+  <div class="table-section">
+    <h3>Alle resultater — nyeste øverst</h3>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Dato</th>
+          <th class="score-tor">Tor</th>
+          <th class="score-oli">Oli</th>
+          <th class="score-christian">Christian</th>
+          <th>Vinder</th>
+          <th>Lukkede</th>
+          <th>Note</th>
+        </tr>
+      </thead>
+      <tbody id="results-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- INDTAL -->
+<div class="page" id="page-indtal">
+  <div class="form-card">
+    <h2>Nyt resultat</h2>
+    <p>Indtast point og hvem der lukkede spillet. Gemmes automatisk i Google Sheets.</p>
+
+    <div class="form-date-row">
+      <div class="form-group">
+        <label>Dato</label>
+        <input type="date" id="f-date">
+      </div>
+      <div class="form-group">
+        <label>Lukkede spillet</label>
+        <select id="f-closed">
+          <option value="">— Ukendt —</option>
+          <option value="Tor">Tor</option>
+          <option value="Oli">Oli</option>
+          <option value="Christian">Christian</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group tor">
+        <label>Tor</label>
+        <input type="number" id="f-tor" min="0" max="300" placeholder="0">
+      </div>
+      <div class="form-group oli">
+        <label>Oli</label>
+        <input type="number" id="f-oli" min="0" max="300" placeholder="0">
+      </div>
+      <div class="form-group christian">
+        <label>Christian</label>
+        <input type="number" id="f-christian" min="0" max="300" placeholder="0">
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom:20px">
+      <label>Note (valgfri)</label>
+      <input type="text" id="f-note" placeholder="fx: Ingen ruter til Tor">
+    </div>
+
+    <button class="btn" id="save-btn" onclick="addGame()">Gem resultat</button>
+    <div class="success-msg" id="success-msg">✓ Resultat gemt i Google Sheets!</div>
+    <div class="error-msg" id="error-msg"></div>
+  </div>
+</div>
+
+<script>
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+const CLIENT_ID = '911721734327-6hbtcb4fvbgl5o7ekpp8sgqspcgdmoe1.apps.googleusercontent.com';
+const SPREADSHEET_ID = '1In70DAHkAczU47_J4yP_y6h5ftoEKqCBdOKnLmql5W4';
+const SHEET_NAME = 'Resultater';
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+
+const PLAYERS = ['Tor', 'Oli', 'Christian'];
+const COLORS = { Tor: '#e8845a', Oli: '#5a9fd4', Christian: '#7db87a' };
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let games = [];
+let accessToken = null;
+let tokenClient = null;
+let charts = {};
+
+// ─── AUTH ─────────────────────────────────────────────────────────────────────
+window.onload = () => {
+  // Init Google Identity Services
+  google.accounts.id.initialize({ client_id: CLIENT_ID });
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: async (resp) => {
+      if (resp.error) { setSyncStatus('error', 'Login fejlede'); return; }
+      accessToken = resp.access_token;
+      document.getElementById('auth-status').textContent = 'Forbundet';
+      document.getElementById('auth-status').className = 'auth-status connected';
+      document.getElementById('auth-btn').textContent = 'Log ud';
+      await loadFromSheets();
+    }
+  });
+
+  // Load from localStorage as fallback while not logged in
+  const cached = localStorage.getItem('ttr_games');
+  if (cached) {
+    games = JSON.parse(cached);
+    renderAll();
+  }
+  setDefaultDate();
+};
+
+function handleAuth() {
+  if (accessToken) {
+    // Log out
+    google.accounts.oauth2.revoke(accessToken, () => {});
+    accessToken = null;
+    document.getElementById('auth-status').textContent = 'Ikke logget ind';
+    document.getElementById('auth-status').className = 'auth-status';
+    document.getElementById('auth-btn').textContent = 'Log ind';
+    setSyncStatus('', 'Klar — log ind for at synkronisere med Google Sheets');
+  } else {
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+  }
+}
+
+// ─── SHEETS API ───────────────────────────────────────────────────────────────
+function setSyncStatus(state, text) {
+  const dot = document.getElementById('sync-dot');
+  dot.className = 'sync-dot' + (state ? ' ' + state : '');
+  document.getElementById('sync-text').textContent = text;
+}
+
+async function sheetsRequest(method, path, body) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}${path}`;
+  const resp = await fetch(url, {
+    method,
+    headers: {
+      'Authorization': 'Bearer ' + accessToken,
+      'Content-Type': 'application/json'
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!resp.ok) {
+    const err = await resp.json();
+    throw new Error(err.error?.message || 'Sheets API fejl');
+  }
+  return resp.json();
+}
+
+async function ensureHeaders() {
+  // Check if headers exist; if not, write them
+  try {
+    const data = await sheetsRequest('GET', `/values/${SHEET_NAME}!A1:G1`);
+    if (!data.values || data.values[0]?.[0] !== 'id') {
+      await sheetsRequest('PUT', `/values/${SHEET_NAME}!A1:G1?valueInputOption=RAW`, {
+        values: [['id', 'date', 'Tor', 'Oli', 'Christian', 'closedBy', 'note']]
+      });
+    }
+  } catch(e) {
+    // Sheet might be empty
+    await sheetsRequest('PUT', `/values/${SHEET_NAME}!A1:G1?valueInputOption=RAW`, {
+      values: [['id', 'date', 'Tor', 'Oli', 'Christian', 'closedBy', 'note']]
+    });
+  }
+}
+
+async function loadFromSheets() {
+  setSyncStatus('loading', 'Henter data fra Google Sheets...');
+  try {
+    await ensureHeaders();
+    const data = await sheetsRequest('GET', `/values/${SHEET_NAME}!A2:G`);
+    const rows = data.values || [];
+
+    if (rows.length === 0) {
+      // First time: upload all existing games
+      setSyncStatus('loading', 'Første gang: uploader historiske data...');
+      await uploadAllGames();
+    } else {
+      games = rows.map(r => ({
+        id: parseInt(r[0]) || 0,
+        date: r[1] || '',
+        Tor: parseInt(r[2]) || 0,
+        Oli: parseInt(r[3]) || 0,
+        Christian: parseInt(r[4]) || 0,
+        closedBy: r[5] || '',
+        note: r[6] || ''
+      })).filter(g => g.id > 0);
+    }
+
+    localStorage.setItem('ttr_games', JSON.stringify(games));
+    renderAll();
+    setSyncStatus('ok', 'Synkroniseret med Google Sheets · ' + new Date().toLocaleTimeString('da-DK'));
+  } catch(e) {
+    setSyncStatus('error', 'Fejl: ' + e.message);
+  }
+}
+
+async function uploadAllGames() {
+  const rows = INITIAL_GAMES.map(g => [g.id, g.date, g.Tor, g.Oli, g.Christian, g.closedBy || '', g.note || '']);
+  await sheetsRequest('PUT', `/values/${SHEET_NAME}!A2:G?valueInputOption=RAW`, { values: rows });
+  games = INITIAL_GAMES;
+  localStorage.setItem('ttr_games', JSON.stringify(games));
+  renderAll();
+  setSyncStatus('ok', 'Historiske data uploadet · ' + new Date().toLocaleTimeString('da-DK'));
+}
+
+async function appendGameToSheets(g) {
+  const row = [g.id, g.date, g.Tor, g.Oli, g.Christian, g.closedBy || '', g.note || ''];
+  await sheetsRequest('POST', `/values/${SHEET_NAME}!A:G:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    values: [row]
+  });
+}
+
+// ─── GAME LOGIC ───────────────────────────────────────────────────────────────
+function getWinner(g) {
+  const scores = PLAYERS.map(p => ({ p, s: g[p] })).sort((a, b) => b.s - a.s);
+  if (scores[0].s === scores[1].s) return null;
+  return scores[0].p;
+}
+
+function calcStats(player) {
+  const scores = games.map(g => g[player]);
+  const wins = games.filter(g => getWinner(g) === player).length;
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+  return {
+    wins, avg: avg.toFixed(1),
+    max: Math.max(...scores), min: Math.min(...scores),
+    total: games.length
+  };
+}
+
+function calcCloseStats(player) {
+  const closed = games.filter(g => g.closedBy === player);
+  const closedAndWon = closed.filter(g => getWinner(g) === player);
+  const closedAvg = closed.length ? (closed.reduce((s, g) => s + g[player], 0) / closed.length).toFixed(1) : '—';
+  const notClosed = games.filter(g => g.closedBy && g.closedBy !== player);
+  const notClosedAvg = notClosed.length ? (notClosed.reduce((s, g) => s + g[player], 0) / notClosed.length).toFixed(1) : '—';
+  return {
+    count: closed.length,
+    winWhenClosed: closedAndWon.length,
+    pct: closed.length ? ((closed.length / games.length) * 100).toFixed(0) : 0,
+    winPct: closed.length ? ((closedAndWon.length / closed.length) * 100).toFixed(0) : 0,
+    closedAvg, notClosedAvg
+  };
+}
+
+// ─── RENDER ALL ───────────────────────────────────────────────────────────────
+function renderAll() {
+  document.getElementById('hdr-games').textContent = games.length;
+  document.getElementById('hdr-sessions').textContent = new Set(games.map(g => g.date)).size;
+
+  const activePage = document.querySelector('.page.active')?.id?.replace('page-', '');
+  if (activePage) renderPage(activePage);
+}
+
+function showPage(id, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  btn.classList.add('active');
+  renderPage(id);
+}
+
+function renderPage(id) {
+  if (id === 'overblik') renderOverblik();
+  else if (id === 'grafer') renderGrafer();
+  else if (id === 'lukninger') renderLukninger();
+  else if (id === 'resultater') renderResultater();
+  else if (id === 'indtal') setDefaultDate();
+}
+
+// ─── OVERBLIK ─────────────────────────────────────────────────────────────────
+function renderOverblik() {
+  document.getElementById('stat-cards').innerHTML = PLAYERS.map(p => {
+    const s = calcStats(p);
+    const pct = ((s.wins / s.total) * 100).toFixed(0);
+    return `<div class="stat-card ${p.toLowerCase()}">
+      <div class="player-name">${p}</div>
+      <div class="wins">${s.wins}</div>
+      <div class="win-pct">${pct}% sejrsprocent</div>
+      <div class="stat-mini-grid">
+        <div class="stat-mini"><div class="lbl">Gns. point</div><div class="val">${s.avg}</div></div>
+        <div class="stat-mini"><div class="lbl">Højeste</div><div class="val">${s.max}</div></div>
+        <div class="stat-mini"><div class="lbl">Laveste</div><div class="val">${s.min}</div></div>
+        <div class="stat-mini"><div class="lbl">Spil spillet</div><div class="val">${s.total}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const streaks = calcStreaks();
+  document.getElementById('streak-cards').innerHTML = `
+    <div class="streak-card">
+      <div class="lbl">Længste vinderserie</div>
+      <div class="streak-val" style="color:${COLORS[streaks.longestWin.player]}">${streaks.longestWin.count}</div>
+      <div class="streak-who">${streaks.longestWin.player} i træk</div>
+    </div>
+    <div class="streak-card">
+      <div class="lbl">Aktuel serie</div>
+      <div class="streak-val" style="color:${COLORS[streaks.current.player] || 'var(--muted)'}">${streaks.current.count}</div>
+      <div class="streak-who">${streaks.current.player} (seneste spil)</div>
+    </div>
+    <div class="streak-card">
+      <div class="lbl">Rekordscorer</div>
+      <div class="streak-val" style="color:${COLORS[streaks.highScore.player]}">${streaks.highScore.score}</div>
+      <div class="streak-who">${streaks.highScore.player} · ${streaks.highScore.date}</div>
+    </div>`;
+
+  destroyChart('main-line');
+  const ctx = document.getElementById('chart-line').getContext('2d');
+  charts['main-line'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: games.map(g => '#' + g.id),
+      datasets: PLAYERS.map(p => ({
+        label: p, data: games.map(g => g[p]),
+        borderColor: COLORS[p], backgroundColor: COLORS[p] + '18',
+        pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, tension: 0.3, fill: false
+      }))
+    },
+    options: chartDefaults()
+  });
+}
+
+function calcStreaks() {
+  let maxStreak = { player: '', count: 0 }, curStreak = { player: '', count: 0 };
+  for (const g of games) {
+    const w = getWinner(g);
+    if (!w) { curStreak = { player: '', count: 0 }; continue; }
+    curStreak = w === curStreak.player ? { player: w, count: curStreak.count + 1 } : { player: w, count: 1 };
+    if (curStreak.count > maxStreak.count) maxStreak = { ...curStreak };
+  }
+  const rev = [...games].reverse();
+  const lastWinner = getWinner(rev[0]);
+  let cnt = 0;
+  for (const g of rev) { if (getWinner(g) === lastWinner) cnt++; else break; }
+  let hs = { player: '', score: 0, date: '' };
+  for (const g of games) for (const p of PLAYERS) if (g[p] > hs.score) hs = { player: p, score: g[p], date: g.date };
+  return { longestWin: maxStreak, current: { player: lastWinner || '—', count: cnt }, highScore: hs };
+}
+
+// ─── GRAFER ───────────────────────────────────────────────────────────────────
+function renderGrafer() {
+  destroyChart('wins');
+  charts['wins'] = new Chart(document.getElementById('chart-wins').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: games.map(g => '#' + g.id),
+      datasets: PLAYERS.map(p => ({
+        label: p,
+        data: games.map(g => getWinner(g) === p ? g[p] : null),
+        backgroundColor: COLORS[p] + 'cc', borderColor: COLORS[p], borderWidth: 1, borderRadius: 2
+      }))
+    },
+    options: chartDefaults()
+  });
+
+  destroyChart('pie');
+  const winData = PLAYERS.map(p => games.filter(g => getWinner(g) === p).length);
+  charts['pie'] = new Chart(document.getElementById('chart-pie').getContext('2d'), {
+    type: 'doughnut',
+    data: {
+      labels: PLAYERS,
+      datasets: [{ data: winData, backgroundColor: PLAYERS.map(p => COLORS[p] + 'cc'), borderColor: PLAYERS.map(p => COLORS[p]), borderWidth: 2 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#e8e0d0', font: { family: 'DM Mono' }, boxWidth: 12 } } }
+    }
+  });
+
+  destroyChart('sessions');
+  const sessionDates = [...new Set(games.map(g => g.date))].sort();
+  charts['sessions'] = new Chart(document.getElementById('chart-sessions').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: sessionDates.map(d => d.slice(5)),
+      datasets: PLAYERS.map(p => ({
+        label: p,
+        data: sessionDates.map(d => { const sg = games.filter(g => g.date === d); return Math.round(sg.reduce((s, g) => s + g[p], 0) / sg.length); }),
+        borderColor: COLORS[p], backgroundColor: COLORS[p] + '20',
+        pointRadius: 4, borderWidth: 2, tension: 0.3, fill: false
+      }))
+    },
+    options: chartDefaults()
+  });
+
+  destroyChart('hist');
+  const bins = [60,80,100,110,120,130,140,150,160,210];
+  const binLabels = bins.slice(0,-1).map((b,i) => `${b}–${bins[i+1]}`);
+  charts['hist'] = new Chart(document.getElementById('chart-hist').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: binLabels,
+      datasets: PLAYERS.map(p => ({
+        label: p,
+        data: binLabels.map((_, i) => games.filter(g => g[p] >= bins[i] && g[p] < bins[i+1]).length),
+        backgroundColor: COLORS[p] + 'aa', borderColor: COLORS[p], borderWidth: 1, borderRadius: 2
+      }))
+    },
+    options: chartDefaults()
+  });
+
+  destroyChart('rolling');
+  const W = 10;
+  charts['rolling'] = new Chart(document.getElementById('chart-rolling').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: games.slice(W-1).map(g => '#' + g.id),
+      datasets: PLAYERS.map(p => ({
+        label: `${p} (gns. ${W})`,
+        data: games.slice(W-1).map((_, i) => (games.slice(i, i+W).reduce((s, g) => s + g[p], 0) / W).toFixed(1)),
+        borderColor: COLORS[p], backgroundColor: COLORS[p] + '15',
+        pointRadius: 2, borderWidth: 2.5, tension: 0.4, fill: false
+      }))
+    },
+    options: chartDefaults()
+  });
+}
+
+// ─── LUKNINGER ────────────────────────────────────────────────────────────────
+function renderLukninger() {
+  const gamesWithClose = games.filter(g => g.closedBy);
+
+  document.getElementById('close-stat-cards').innerHTML = PLAYERS.map(p => {
+    const s = calcCloseStats(p);
+    return `<div class="stat-card ${p.toLowerCase()}">
+      <div class="player-name">${p}</div>
+      <div class="wins">${s.count}</div>
+      <div class="win-pct">${s.pct}% af alle spil · vandt ${s.winPct}% når de lukkede</div>
+      <div class="stat-mini-grid">
+        <div class="stat-mini"><div class="lbl">Vandt når lukket</div><div class="val">${s.winWhenClosed}</div></div>
+        <div class="stat-mini"><div class="lbl">Gns. score lukket</div><div class="val">${s.closedAvg}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Pie: hvem lukker mest
+  destroyChart('close-pie');
+  const closeCounts = PLAYERS.map(p => games.filter(g => g.closedBy === p).length);
+  charts['close-pie'] = new Chart(document.getElementById('chart-close-pie').getContext('2d'), {
+    type: 'doughnut',
+    data: {
+      labels: PLAYERS,
+      datasets: [{ data: closeCounts, backgroundColor: PLAYERS.map(p => COLORS[p] + 'cc'), borderColor: PLAYERS.map(p => COLORS[p]), borderWidth: 2 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#e8e0d0', font: { family: 'DM Mono' }, boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} lukninger` } }
+      }
+    }
+  });
+
+  // Grouped bar: lukket og vandt vs lukket og tabte
+  destroyChart('close-win');
+  charts['close-win'] = new Chart(document.getElementById('chart-close-win').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: PLAYERS,
+      datasets: [
+        {
+          label: 'Lukkede og vandt',
+          data: PLAYERS.map(p => games.filter(g => g.closedBy === p && getWinner(g) === p).length),
+          backgroundColor: PLAYERS.map(p => COLORS[p] + 'dd'), borderColor: PLAYERS.map(p => COLORS[p]), borderWidth: 1, borderRadius: 3
+        },
+        {
+          label: 'Lukkede men tabte',
+          data: PLAYERS.map(p => games.filter(g => g.closedBy === p && getWinner(g) !== p).length),
+          backgroundColor: PLAYERS.map(p => COLORS[p] + '44'), borderColor: PLAYERS.map(p => COLORS[p]), borderWidth: 1, borderRadius: 3, borderDash: [4,4]
+        }
+      ]
+    },
+    options: { ...chartDefaults(), scales: { ...chartDefaults().scales, x: { ...chartDefaults().scales.x, stacked: false } } }
+  });
+
+  // Score comparison: gns score når man selv lukker vs ikke lukker
+  destroyChart('close-score');
+  charts['close-score'] = new Chart(document.getElementById('chart-close-score').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: PLAYERS,
+      datasets: [
+        {
+          label: 'Gns. score når lukker',
+          data: PLAYERS.map(p => {
+            const cl = games.filter(g => g.closedBy === p);
+            return cl.length ? (cl.reduce((s, g) => s + g[p], 0) / cl.length).toFixed(1) : 0;
+          }),
+          backgroundColor: PLAYERS.map(p => COLORS[p] + 'dd'), borderColor: PLAYERS.map(p => COLORS[p]), borderWidth: 1, borderRadius: 3
+        },
+        {
+          label: 'Gns. score når andre lukker',
+          data: PLAYERS.map(p => {
+            const cl = games.filter(g => g.closedBy && g.closedBy !== p);
+            return cl.length ? (cl.reduce((s, g) => s + g[p], 0) / cl.length).toFixed(1) : 0;
+          }),
+          backgroundColor: PLAYERS.map(p => COLORS[p] + '44'), borderColor: PLAYERS.map(p => COLORS[p]), borderWidth: 1, borderRadius: 3
+        }
+      ]
+    },
+    options: chartDefaults()
+  });
+}
+
+// ─── RESULTATER ───────────────────────────────────────────────────────────────
+function renderResultater() {
+  const reversed = [...games].reverse();
+  let lastDate = null;
+  let html = '';
+  for (const g of reversed) {
+    if (g.date !== lastDate) {
+      const n = games.filter(x => x.date === g.date).length;
+      html += `<tr class="session-header"><td colspan="8">📅 ${formatDate(g.date)} — ${n} spil</td></tr>`;
+      lastDate = g.date;
+    }
+    const winner = getWinner(g);
+    const closedBadge = g.closedBy ? `<span class="closed-badge closed-${g.closedBy.toLowerCase()}">${g.closedBy}</span>` : '<span style="color:var(--muted)">—</span>';
+    html += `<tr>
+      <td style="color:var(--muted)">${g.id}</td>
+      <td style="color:var(--muted);font-size:0.7rem">${g.date.slice(5)}</td>
+      ${PLAYERS.map(p => `<td class="score-${p.toLowerCase()}${winner===p?' winner':''}">${g[p]}${winner===p?'<span class="crown">🏆</span>':''}</td>`).join('')}
+      <td style="color:${winner?COLORS[winner]:'var(--muted)'}">${winner||'—'}</td>
+      <td>${closedBadge}</td>
+      <td>${g.note?`<span class="note-badge">${g.note}</span>`:''}</td>
+    </tr>`;
+  }
+  document.getElementById('results-tbody').innerHTML = html;
+}
+
+// ─── INDTAL ───────────────────────────────────────────────────────────────────
+function setDefaultDate() {
+  document.getElementById('f-date').value = new Date().toISOString().slice(0, 10);
+}
+
+async function addGame() {
+  const date = document.getElementById('f-date').value;
+  const tor = parseInt(document.getElementById('f-tor').value);
+  const oli = parseInt(document.getElementById('f-oli').value);
+  const christian = parseInt(document.getElementById('f-christian').value);
+  const closedBy = document.getElementById('f-closed').value;
+  const note = document.getElementById('f-note').value.trim();
+
+  if (!date || isNaN(tor) || isNaN(oli) || isNaN(christian)) {
+    showMsg('error', 'Udfyld dato og alle tre scores.'); return;
+  }
+
+  const newGame = {
+    id: Math.max(...games.map(g => g.id)) + 1,
+    date, Tor: tor, Oli: oli, Christian: christian,
+    closedBy, note
+  };
+
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Gemmer...';
+
+  try {
+    if (accessToken) {
+      await appendGameToSheets(newGame);
+      showMsg('success', '✓ Gemt i Google Sheets!');
+    } else {
+      showMsg('success', '✓ Gemt lokalt (log ind for at synkronisere)');
+    }
+    games.push(newGame);
+    localStorage.setItem('ttr_games', JSON.stringify(games));
+    renderAll();
+    document.getElementById('f-tor').value = '';
+    document.getElementById('f-oli').value = '';
+    document.getElementById('f-christian').value = '';
+    document.getElementById('f-closed').value = '';
+    document.getElementById('f-note').value = '';
+  } catch(e) {
+    showMsg('error', 'Fejl ved gem: ' + e.message);
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Gem resultat';
+}
+
+function showMsg(type, text) {
+  const el = document.getElementById(type + '-msg');
+  el.textContent = text;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 4000);
+}
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+function destroyChart(key) {
+  if (charts[key]) { charts[key].destroy(); delete charts[key]; }
+}
+
+function formatDate(d) {
+  const [y, m, day] = d.split('-');
+  const months = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+  return `${parseInt(day)}. ${months[parseInt(m)-1]} ${y}`;
+}
+
+function chartDefaults() {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { labels: { color: '#e8e0d0', font: { family: 'DM Mono', size: 11 }, boxWidth: 12, padding: 16 } },
+      tooltip: {
+        backgroundColor: '#1a1714', borderColor: '#2e2a24', borderWidth: 1,
+        titleColor: '#e8e0d0', bodyColor: '#7a6e5f',
+        titleFont: { family: 'DM Mono' }, bodyFont: { family: 'DM Mono' }, padding: 12
+      }
+    },
+    scales: {
+      x: { ticks: { color: '#7a6e5f', font: { family: 'DM Mono', size: 10 }, maxRotation: 0, maxTicksLimit: 20 }, grid: { color: '#1e1c18' } },
+      y: { ticks: { color: '#7a6e5f', font: { family: 'DM Mono', size: 10 } }, grid: { color: '#1e1c18' } }
+    }
+  };
+}
+
+// ─── INITIAL DATA ─────────────────────────────────────────────────────────────
+const INITIAL_GAMES = [{"id":1,"date":"2022-11-19","Tor":62,"Oli":119,"Christian":137,"closedBy":"","note":""},{"id":2,"date":"2022-11-19","Tor":107,"Oli":32,"Christian":95,"closedBy":"","note":""},{"id":3,"date":"2022-11-19","Tor":119,"Oli":77,"Christian":133,"closedBy":"","note":""},{"id":4,"date":"2022-11-19","Tor":81,"Oli":25,"Christian":105,"closedBy":"","note":""},{"id":5,"date":"2023-02-03","Tor":106,"Oli":112,"Christian":118,"closedBy":"","note":""},{"id":6,"date":"2023-02-03","Tor":98,"Oli":116,"Christian":108,"closedBy":"","note":""},{"id":7,"date":"2023-02-03","Tor":90,"Oli":126,"Christian":121,"closedBy":"","note":""},{"id":8,"date":"2023-02-03","Tor":109,"Oli":65,"Christian":115,"closedBy":"","note":""},{"id":9,"date":"2023-02-03","Tor":39,"Oli":48,"Christian":120,"closedBy":"","note":""},{"id":10,"date":"2023-02-03","Tor":101,"Oli":106,"Christian":129,"closedBy":"","note":""},{"id":11,"date":"2023-04-15","Tor":110,"Oli":99,"Christian":117,"closedBy":"","note":""},{"id":12,"date":"2023-04-15","Tor":93,"Oli":102,"Christian":126,"closedBy":"","note":""},{"id":13,"date":"2023-04-15","Tor":109,"Oli":133,"Christian":130,"closedBy":"","note":""},{"id":14,"date":"2023-04-15","Tor":117,"Oli":99,"Christian":129,"closedBy":"","note":""},{"id":15,"date":"2023-04-15","Tor":68,"Oli":117,"Christian":125,"closedBy":"","note":""},{"id":16,"date":"2023-04-15","Tor":104,"Oli":109,"Christian":124,"closedBy":"","note":""},{"id":17,"date":"2023-06-03","Tor":77,"Oli":86,"Christian":126,"closedBy":"","note":""},{"id":18,"date":"2023-06-03","Tor":74,"Oli":145,"Christian":113,"closedBy":"","note":""},{"id":19,"date":"2023-06-03","Tor":99,"Oli":103,"Christian":119,"closedBy":"","note":""},{"id":20,"date":"2023-06-03","Tor":67,"Oli":97,"Christian":142,"closedBy":"","note":""},{"id":21,"date":"2023-06-03","Tor":34,"Oli":105,"Christian":125,"closedBy":"","note":""},{"id":22,"date":"2023-06-03","Tor":105,"Oli":161,"Christian":96,"closedBy":"","note":""},{"id":23,"date":"2023-08-26","Tor":109,"Oli":106,"Christian":145,"closedBy":"","note":""},{"id":24,"date":"2023-08-26","Tor":52,"Oli":82,"Christian":123,"closedBy":"","note":""},{"id":25,"date":"2023-08-26","Tor":99,"Oli":122,"Christian":121,"closedBy":"","note":""},{"id":26,"date":"2023-08-26","Tor":55,"Oli":119,"Christian":110,"closedBy":"","note":""},{"id":27,"date":"2023-08-26","Tor":48,"Oli":125,"Christian":140,"closedBy":"","note":""},{"id":28,"date":"2023-09-30","Tor":130,"Oli":117,"Christian":144,"closedBy":"","note":""},{"id":29,"date":"2023-09-30","Tor":117,"Oli":122,"Christian":94,"closedBy":"","note":""},{"id":30,"date":"2023-09-30","Tor":117,"Oli":45,"Christian":140,"closedBy":"","note":""},{"id":31,"date":"2023-09-30","Tor":97,"Oli":70,"Christian":156,"closedBy":"","note":""},{"id":32,"date":"2023-09-30","Tor":131,"Oli":118,"Christian":121,"closedBy":"","note":""},{"id":33,"date":"2023-11-11","Tor":48,"Oli":104,"Christian":134,"closedBy":"","note":""},{"id":34,"date":"2023-11-11","Tor":75,"Oli":97,"Christian":138,"closedBy":"","note":""},{"id":35,"date":"2023-11-11","Tor":127,"Oli":135,"Christian":119,"closedBy":"","note":""},{"id":36,"date":"2023-11-11","Tor":28,"Oli":21,"Christian":115,"closedBy":"","note":""},{"id":37,"date":"2023-11-11","Tor":86,"Oli":38,"Christian":133,"closedBy":"","note":""},{"id":38,"date":"2023-11-11","Tor":57,"Oli":121,"Christian":119,"closedBy":"","note":""},{"id":39,"date":"2024-01-06","Tor":138,"Oli":103,"Christian":106,"closedBy":"","note":""},{"id":40,"date":"2024-01-06","Tor":108,"Oli":103,"Christian":125,"closedBy":"","note":""},{"id":41,"date":"2024-01-06","Tor":122,"Oli":147,"Christian":96,"closedBy":"","note":""},{"id":42,"date":"2024-01-06","Tor":115,"Oli":105,"Christian":148,"closedBy":"","note":""},{"id":43,"date":"2024-01-06","Tor":44,"Oli":68,"Christian":125,"closedBy":"","note":""},{"id":44,"date":"2024-01-06","Tor":81,"Oli":126,"Christian":157,"closedBy":"","note":""},{"id":45,"date":"2024-03-23","Tor":76,"Oli":134,"Christian":119,"closedBy":"","note":""},{"id":46,"date":"2024-03-23","Tor":101,"Oli":115,"Christian":146,"closedBy":"","note":""},{"id":47,"date":"2024-03-23","Tor":136,"Oli":96,"Christian":123,"closedBy":"","note":""},{"id":48,"date":"2024-03-23","Tor":106,"Oli":162,"Christian":181,"closedBy":"","note":""},{"id":49,"date":"2024-03-23","Tor":114,"Oli":43,"Christian":122,"closedBy":"","note":""},{"id":50,"date":"2024-05-12","Tor":118,"Oli":143,"Christian":93,"closedBy":"","note":""},{"id":51,"date":"2024-05-12","Tor":93,"Oli":62,"Christian":126,"closedBy":"","note":""},{"id":52,"date":"2024-05-12","Tor":101,"Oli":100,"Christian":132,"closedBy":"","note":""},{"id":53,"date":"2024-05-12","Tor":98,"Oli":160,"Christian":125,"closedBy":"","note":""},{"id":54,"date":"2024-05-12","Tor":120,"Oli":75,"Christian":110,"closedBy":"","note":""},{"id":55,"date":"2024-05-27","Tor":46,"Oli":111,"Christian":144,"closedBy":"","note":""},{"id":56,"date":"2024-05-27","Tor":110,"Oli":131,"Christian":122,"closedBy":"","note":""},{"id":57,"date":"2024-05-27","Tor":128,"Oli":85,"Christian":107,"closedBy":"","note":""},{"id":58,"date":"2024-05-27","Tor":107,"Oli":110,"Christian":128,"closedBy":"","note":""},{"id":59,"date":"2024-05-27","Tor":108,"Oli":126,"Christian":97,"closedBy":"","note":""},{"id":60,"date":"2024-05-27","Tor":139,"Oli":137,"Christian":137,"closedBy":"","note":""},{"id":61,"date":"2025-01-10","Tor":58,"Oli":118,"Christian":126,"closedBy":"","note":""},{"id":62,"date":"2025-01-10","Tor":49,"Oli":82,"Christian":120,"closedBy":"","note":""},{"id":63,"date":"2025-01-10","Tor":93,"Oli":129,"Christian":128,"closedBy":"","note":""},{"id":64,"date":"2025-01-10","Tor":112,"Oli":102,"Christian":123,"closedBy":"","note":""},{"id":65,"date":"2025-01-10","Tor":113,"Oli":129,"Christian":121,"closedBy":"","note":""},{"id":66,"date":"2025-02-22","Tor":141,"Oli":74,"Christian":162,"closedBy":"","note":""},{"id":67,"date":"2025-02-22","Tor":71,"Oli":31,"Christian":118,"closedBy":"","note":""},{"id":68,"date":"2025-02-22","Tor":82,"Oli":85,"Christian":141,"closedBy":"","note":""},{"id":69,"date":"2025-02-22","Tor":101,"Oli":96,"Christian":134,"closedBy":"","note":""},{"id":70,"date":"2025-02-22","Tor":85,"Oli":84,"Christian":124,"closedBy":"","note":""},{"id":71,"date":"2025-02-22","Tor":70,"Oli":135,"Christian":97,"closedBy":"","note":""},{"id":72,"date":"2025-02-22","Tor":105,"Oli":105,"Christian":119,"closedBy":"","note":""},{"id":73,"date":"2025-04-05","Tor":114,"Oli":66,"Christian":105,"closedBy":"","note":""},{"id":74,"date":"2025-04-05","Tor":89,"Oli":205,"Christian":131,"closedBy":"","note":""},{"id":75,"date":"2025-04-05","Tor":129,"Oli":113,"Christian":137,"closedBy":"","note":""},{"id":76,"date":"2025-04-05","Tor":27,"Oli":110,"Christian":118,"closedBy":"","note":"Tor fik ingen ruter!"},{"id":77,"date":"2025-04-05","Tor":112,"Oli":158,"Christian":164,"closedBy":"","note":""},{"id":78,"date":"2025-04-06","Tor":48,"Oli":71,"Christian":135,"closedBy":"","note":""},{"id":79,"date":"2025-06-20","Tor":96,"Oli":88,"Christian":126,"closedBy":"","note":""},{"id":80,"date":"2025-06-20","Tor":110,"Oli":35,"Christian":133,"closedBy":"","note":""},{"id":81,"date":"2025-06-20","Tor":111,"Oli":97,"Christian":137,"closedBy":"","note":""},{"id":82,"date":"2025-06-20","Tor":77,"Oli":86,"Christian":128,"closedBy":"","note":""},{"id":83,"date":"2025-06-20","Tor":148,"Oli":80,"Christian":125,"closedBy":"","note":""},{"id":84,"date":"2025-08-23","Tor":118,"Oli":144,"Christian":158,"closedBy":"","note":""},{"id":85,"date":"2025-08-23","Tor":118,"Oli":138,"Christian":153,"closedBy":"","note":""},{"id":86,"date":"2025-08-23","Tor":93,"Oli":140,"Christian":124,"closedBy":"","note":""},{"id":87,"date":"2025-08-23","Tor":117,"Oli":171,"Christian":155,"closedBy":"","note":""},{"id":88,"date":"2025-08-23","Tor":105,"Oli":80,"Christian":122,"closedBy":"","note":""},{"id":89,"date":"2025-08-23","Tor":66,"Oli":168,"Christian":148,"closedBy":"","note":""},{"id":90,"date":"2025-09-27","Tor":73,"Oli":151,"Christian":138,"closedBy":"","note":""},{"id":91,"date":"2025-09-27","Tor":51,"Oli":128,"Christian":132,"closedBy":"","note":""},{"id":92,"date":"2025-09-27","Tor":128,"Oli":127,"Christian":136,"closedBy":"","note":""},{"id":93,"date":"2025-09-27","Tor":136,"Oli":100,"Christian":120,"closedBy":"","note":""},{"id":94,"date":"2025-09-27","Tor":137,"Oli":133,"Christian":92,"closedBy":"","note":""},{"id":95,"date":"2025-09-27","Tor":127,"Oli":101,"Christian":126,"closedBy":"","note":""},{"id":96,"date":"2025-11-15","Tor":86,"Oli":121,"Christian":123,"closedBy":"","note":""},{"id":97,"date":"2025-11-15","Tor":111,"Oli":133,"Christian":136,"closedBy":"","note":""},{"id":98,"date":"2025-11-15","Tor":116,"Oli":126,"Christian":136,"closedBy":"","note":""},{"id":99,"date":"2025-11-15","Tor":153,"Oli":125,"Christian":149,"closedBy":"","note":""},{"id":100,"date":"2025-11-15","Tor":87,"Oli":155,"Christian":150,"closedBy":"","note":""},{"id":101,"date":"2026-01-17","Tor":132,"Oli":95,"Christian":114,"closedBy":"Christian","note":""},{"id":102,"date":"2026-01-17","Tor":131,"Oli":122,"Christian":136,"closedBy":"Oli","note":""},{"id":103,"date":"2026-01-17","Tor":113,"Oli":129,"Christian":136,"closedBy":"Christian","note":""},{"id":104,"date":"2026-01-17","Tor":106,"Oli":147,"Christian":104,"closedBy":"Christian","note":""},{"id":105,"date":"2026-01-17","Tor":120,"Oli":163,"Christian":164,"closedBy":"Oli","note":""},{"id":106,"date":"2026-01-17","Tor":139,"Oli":91,"Christian":138,"closedBy":"Christian","note":""}];
+
+// Init render from cache or initial data
+if (!localStorage.getItem('ttr_games')) {
+  games = INITIAL_GAMES;
+}
+renderAll();
+</script>
+</body>
+</html>
