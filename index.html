@@ -249,7 +249,7 @@
 
 <div class="sync-bar">
   <div class="sync-dot" id="sync-dot"></div>
-  <span id="sync-text">Klar — log ind for at synkronisere med Google Sheets</span>
+  <span id="sync-text">Henter data fra Google Sheets...</span>
 </div>
 
 <nav>
@@ -341,7 +341,17 @@
 
 <!-- INDTAL -->
 <div class="page" id="page-indtal">
-  <div class="form-card">
+  <div class="form-card" style="position:relative;">
+    <!-- Login-overlay: vises automatisk når brugeren ikke er logget ind -->
+    <div id="form-auth-overlay" style="display:flex;flex-direction:column;align-items:center;justify-content:center;position:absolute;inset:0;background:rgba(14,12,10,0.92);z-index:10;gap:16px;text-align:center;padding:40px;backdrop-filter:blur(3px);">
+      <div style="font-size:2.5rem;">🔒</div>
+      <div style="font-family:'Playfair Display',serif;font-size:1.4rem;color:var(--text);">Login påkrævet</div>
+      <div style="font-size:0.75rem;color:var(--muted);max-width:300px;line-height:1.8;">
+        Statistik er <strong style="color:var(--text)">offentlig</strong> og kan ses af alle.<br>
+        For at <strong style="color:var(--text)">indtaste nye resultater</strong> skal du logge ind med Google.
+      </div>
+      <button class="btn-auth" style="margin-top:8px;" onclick="handleAuth()">Log ind med Google</button>
+    </div>
     <h2>Nyt resultat</h2>
     <p>Indtast point og hvem der lukkede spillet. Gemmes automatisk i Google Sheets.</p>
 
@@ -405,7 +415,6 @@ let charts = {};
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 window.onload = () => {
-  // Init Google Identity Services
   google.accounts.id.initialize({ client_id: CLIENT_ID });
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID,
@@ -413,31 +422,25 @@ window.onload = () => {
     callback: async (resp) => {
       if (resp.error) { setSyncStatus('error', 'Login fejlede'); return; }
       accessToken = resp.access_token;
-      document.getElementById('auth-status').textContent = 'Forbundet';
+      document.getElementById('auth-status').textContent = 'Forbundet ✓';
       document.getElementById('auth-status').className = 'auth-status connected';
       document.getElementById('auth-btn').textContent = 'Log ud';
-      await loadFromSheets();
+      updateFormAuthState();
     }
   });
-
-  // Load from localStorage as fallback while not logged in
-  const cached = localStorage.getItem('ttr_games');
-  if (cached) {
-    games = JSON.parse(cached);
-    renderAll();
-  }
+  // Hent altid data offentligt — ingen login nødvendigt
+  loadPublicFromSheets();
   setDefaultDate();
 };
 
 function handleAuth() {
   if (accessToken) {
-    // Log out
     google.accounts.oauth2.revoke(accessToken, () => {});
     accessToken = null;
     document.getElementById('auth-status').textContent = 'Ikke logget ind';
     document.getElementById('auth-status').className = 'auth-status';
     document.getElementById('auth-btn').textContent = 'Log ind';
-    setSyncStatus('', 'Klar — log ind for at synkronisere med Google Sheets');
+    updateFormAuthState();
   } else {
     tokenClient.requestAccessToken({ prompt: 'consent' });
   }
@@ -484,15 +487,67 @@ async function ensureHeaders() {
   }
 }
 
+// ─── PUBLIC READ — ingen login, ingen API-nøgle ──────────────────────────────
+// Kræver kun at Google Sheets er delt som "Alle med linket kan se"
+async function loadPublicFromSheets() {
+  setSyncStatus('loading', 'Henter data fra Google Sheets...');
+  try {
+    const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}&range=A2:G`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const csv = await resp.text();
+    const rows = csv.trim().split('\n')
+      .map(line => {
+        // Handle quoted CSV fields properly
+        const result = [];
+        let current = '', inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') { inQuotes = !inQuotes; }
+          else if (ch === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+          else { current += ch; }
+        }
+        result.push(current.trim());
+        return result;
+      })
+      .filter(r => r[0] && !isNaN(parseInt(r[0])));
+
+    games = rows.map(r => ({
+      id: parseInt(r[0]) || 0,
+      date: r[1] || '',
+      Tor: parseInt(r[2]) || 0,
+      Oli: parseInt(r[3]) || 0,
+      Christian: parseInt(r[4]) || 0,
+      closedBy: r[5] || '',
+      note: r[6] || ''
+    })).filter(g => g.id > 0);
+
+    localStorage.setItem('ttr_games', JSON.stringify(games));
+    renderAll();
+    setSyncStatus('ok', 'Data hentet · ' + new Date().toLocaleTimeString('da-DK'));
+  } catch(e) {
+    // Fallback til localStorage-cache
+    const cached = localStorage.getItem('ttr_games');
+    if (cached) {
+      games = JSON.parse(cached);
+      renderAll();
+      setSyncStatus('', 'Offline — viser cachedata · ' + new Date().toLocaleTimeString('da-DK'));
+    } else {
+      games = INITIAL_GAMES;
+      renderAll();
+      setSyncStatus('error', 'Kunne ikke hente data: ' + e.message);
+    }
+  }
+}
+
+// ─── AUTHENTICATED READ (bruges ved første upload / skrive-operationer) ───────
 async function loadFromSheets() {
   setSyncStatus('loading', 'Henter data fra Google Sheets...');
   try {
     await ensureHeaders();
     const data = await sheetsRequest('GET', `/values/${SHEET_NAME}!A2:G`);
     const rows = data.values || [];
-
     if (rows.length === 0) {
-      // First time: upload all existing games
       setSyncStatus('loading', 'Første gang: uploader historiske data...');
       await uploadAllGames();
     } else {
@@ -506,10 +561,9 @@ async function loadFromSheets() {
         note: r[6] || ''
       })).filter(g => g.id > 0);
     }
-
     localStorage.setItem('ttr_games', JSON.stringify(games));
     renderAll();
-    setSyncStatus('ok', 'Synkroniseret med Google Sheets · ' + new Date().toLocaleTimeString('da-DK'));
+    setSyncStatus('ok', 'Synkroniseret · ' + new Date().toLocaleTimeString('da-DK'));
   } catch(e) {
     setSyncStatus('error', 'Fejl: ' + e.message);
   }
@@ -851,37 +905,32 @@ function setDefaultDate() {
 }
 
 async function addGame() {
+  if (!accessToken) {
+    showMsg('error', 'Du skal logge ind for at gemme resultater.');
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+    return;
+  }
   const date = document.getElementById('f-date').value;
   const tor = parseInt(document.getElementById('f-tor').value);
   const oli = parseInt(document.getElementById('f-oli').value);
   const christian = parseInt(document.getElementById('f-christian').value);
   const closedBy = document.getElementById('f-closed').value;
   const note = document.getElementById('f-note').value.trim();
-
   if (!date || isNaN(tor) || isNaN(oli) || isNaN(christian)) {
     showMsg('error', 'Udfyld dato og alle tre scores.'); return;
   }
-
   const newGame = {
     id: Math.max(...games.map(g => g.id)) + 1,
     date, Tor: tor, Oli: oli, Christian: christian,
     closedBy, note
   };
-
   const btn = document.getElementById('save-btn');
   btn.disabled = true;
   btn.textContent = 'Gemmer...';
-
   try {
-    if (accessToken) {
-      await appendGameToSheets(newGame);
-      showMsg('success', '✓ Gemt i Google Sheets!');
-    } else {
-      showMsg('success', '✓ Gemt lokalt (log ind for at synkronisere)');
-    }
-    games.push(newGame);
-    localStorage.setItem('ttr_games', JSON.stringify(games));
-    renderAll();
+    await appendGameToSheets(newGame);
+    await loadPublicFromSheets(); // Refresh data efter gem
+    showMsg('success', '✓ Gemt i Google Sheets!');
     document.getElementById('f-tor').value = '';
     document.getElementById('f-oli').value = '';
     document.getElementById('f-christian').value = '';
@@ -890,7 +939,6 @@ async function addGame() {
   } catch(e) {
     showMsg('error', 'Fejl ved gem: ' + e.message);
   }
-
   btn.disabled = false;
   btn.textContent = 'Gem resultat';
 }
@@ -900,6 +948,10 @@ function showMsg(type, text) {
   el.textContent = text;
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 4000);
+}
+function updateFormAuthState() {
+  const overlay = document.getElementById('form-auth-overlay');
+  if (overlay) overlay.style.display = accessToken ? 'none' : 'flex';
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -935,10 +987,9 @@ function chartDefaults() {
 // ─── INITIAL DATA ─────────────────────────────────────────────────────────────
 const INITIAL_GAMES = [{"id":1,"date":"2022-11-19","Tor":62,"Oli":119,"Christian":137,"closedBy":"","note":""},{"id":2,"date":"2022-11-19","Tor":107,"Oli":32,"Christian":95,"closedBy":"","note":""},{"id":3,"date":"2022-11-19","Tor":119,"Oli":77,"Christian":133,"closedBy":"","note":""},{"id":4,"date":"2022-11-19","Tor":81,"Oli":25,"Christian":105,"closedBy":"","note":""},{"id":5,"date":"2023-02-03","Tor":106,"Oli":112,"Christian":118,"closedBy":"","note":""},{"id":6,"date":"2023-02-03","Tor":98,"Oli":116,"Christian":108,"closedBy":"","note":""},{"id":7,"date":"2023-02-03","Tor":90,"Oli":126,"Christian":121,"closedBy":"","note":""},{"id":8,"date":"2023-02-03","Tor":109,"Oli":65,"Christian":115,"closedBy":"","note":""},{"id":9,"date":"2023-02-03","Tor":39,"Oli":48,"Christian":120,"closedBy":"","note":""},{"id":10,"date":"2023-02-03","Tor":101,"Oli":106,"Christian":129,"closedBy":"","note":""},{"id":11,"date":"2023-04-15","Tor":110,"Oli":99,"Christian":117,"closedBy":"","note":""},{"id":12,"date":"2023-04-15","Tor":93,"Oli":102,"Christian":126,"closedBy":"","note":""},{"id":13,"date":"2023-04-15","Tor":109,"Oli":133,"Christian":130,"closedBy":"","note":""},{"id":14,"date":"2023-04-15","Tor":117,"Oli":99,"Christian":129,"closedBy":"","note":""},{"id":15,"date":"2023-04-15","Tor":68,"Oli":117,"Christian":125,"closedBy":"","note":""},{"id":16,"date":"2023-04-15","Tor":104,"Oli":109,"Christian":124,"closedBy":"","note":""},{"id":17,"date":"2023-06-03","Tor":77,"Oli":86,"Christian":126,"closedBy":"","note":""},{"id":18,"date":"2023-06-03","Tor":74,"Oli":145,"Christian":113,"closedBy":"","note":""},{"id":19,"date":"2023-06-03","Tor":99,"Oli":103,"Christian":119,"closedBy":"","note":""},{"id":20,"date":"2023-06-03","Tor":67,"Oli":97,"Christian":142,"closedBy":"","note":""},{"id":21,"date":"2023-06-03","Tor":34,"Oli":105,"Christian":125,"closedBy":"","note":""},{"id":22,"date":"2023-06-03","Tor":105,"Oli":161,"Christian":96,"closedBy":"","note":""},{"id":23,"date":"2023-08-26","Tor":109,"Oli":106,"Christian":145,"closedBy":"","note":""},{"id":24,"date":"2023-08-26","Tor":52,"Oli":82,"Christian":123,"closedBy":"","note":""},{"id":25,"date":"2023-08-26","Tor":99,"Oli":122,"Christian":121,"closedBy":"","note":""},{"id":26,"date":"2023-08-26","Tor":55,"Oli":119,"Christian":110,"closedBy":"","note":""},{"id":27,"date":"2023-08-26","Tor":48,"Oli":125,"Christian":140,"closedBy":"","note":""},{"id":28,"date":"2023-09-30","Tor":130,"Oli":117,"Christian":144,"closedBy":"","note":""},{"id":29,"date":"2023-09-30","Tor":117,"Oli":122,"Christian":94,"closedBy":"","note":""},{"id":30,"date":"2023-09-30","Tor":117,"Oli":45,"Christian":140,"closedBy":"","note":""},{"id":31,"date":"2023-09-30","Tor":97,"Oli":70,"Christian":156,"closedBy":"","note":""},{"id":32,"date":"2023-09-30","Tor":131,"Oli":118,"Christian":121,"closedBy":"","note":""},{"id":33,"date":"2023-11-11","Tor":48,"Oli":104,"Christian":134,"closedBy":"","note":""},{"id":34,"date":"2023-11-11","Tor":75,"Oli":97,"Christian":138,"closedBy":"","note":""},{"id":35,"date":"2023-11-11","Tor":127,"Oli":135,"Christian":119,"closedBy":"","note":""},{"id":36,"date":"2023-11-11","Tor":28,"Oli":21,"Christian":115,"closedBy":"","note":""},{"id":37,"date":"2023-11-11","Tor":86,"Oli":38,"Christian":133,"closedBy":"","note":""},{"id":38,"date":"2023-11-11","Tor":57,"Oli":121,"Christian":119,"closedBy":"","note":""},{"id":39,"date":"2024-01-06","Tor":138,"Oli":103,"Christian":106,"closedBy":"","note":""},{"id":40,"date":"2024-01-06","Tor":108,"Oli":103,"Christian":125,"closedBy":"","note":""},{"id":41,"date":"2024-01-06","Tor":122,"Oli":147,"Christian":96,"closedBy":"","note":""},{"id":42,"date":"2024-01-06","Tor":115,"Oli":105,"Christian":148,"closedBy":"","note":""},{"id":43,"date":"2024-01-06","Tor":44,"Oli":68,"Christian":125,"closedBy":"","note":""},{"id":44,"date":"2024-01-06","Tor":81,"Oli":126,"Christian":157,"closedBy":"","note":""},{"id":45,"date":"2024-03-23","Tor":76,"Oli":134,"Christian":119,"closedBy":"","note":""},{"id":46,"date":"2024-03-23","Tor":101,"Oli":115,"Christian":146,"closedBy":"","note":""},{"id":47,"date":"2024-03-23","Tor":136,"Oli":96,"Christian":123,"closedBy":"","note":""},{"id":48,"date":"2024-03-23","Tor":106,"Oli":162,"Christian":181,"closedBy":"","note":""},{"id":49,"date":"2024-03-23","Tor":114,"Oli":43,"Christian":122,"closedBy":"","note":""},{"id":50,"date":"2024-05-12","Tor":118,"Oli":143,"Christian":93,"closedBy":"","note":""},{"id":51,"date":"2024-05-12","Tor":93,"Oli":62,"Christian":126,"closedBy":"","note":""},{"id":52,"date":"2024-05-12","Tor":101,"Oli":100,"Christian":132,"closedBy":"","note":""},{"id":53,"date":"2024-05-12","Tor":98,"Oli":160,"Christian":125,"closedBy":"","note":""},{"id":54,"date":"2024-05-12","Tor":120,"Oli":75,"Christian":110,"closedBy":"","note":""},{"id":55,"date":"2024-05-27","Tor":46,"Oli":111,"Christian":144,"closedBy":"","note":""},{"id":56,"date":"2024-05-27","Tor":110,"Oli":131,"Christian":122,"closedBy":"","note":""},{"id":57,"date":"2024-05-27","Tor":128,"Oli":85,"Christian":107,"closedBy":"","note":""},{"id":58,"date":"2024-05-27","Tor":107,"Oli":110,"Christian":128,"closedBy":"","note":""},{"id":59,"date":"2024-05-27","Tor":108,"Oli":126,"Christian":97,"closedBy":"","note":""},{"id":60,"date":"2024-05-27","Tor":139,"Oli":137,"Christian":137,"closedBy":"","note":""},{"id":61,"date":"2025-01-10","Tor":58,"Oli":118,"Christian":126,"closedBy":"","note":""},{"id":62,"date":"2025-01-10","Tor":49,"Oli":82,"Christian":120,"closedBy":"","note":""},{"id":63,"date":"2025-01-10","Tor":93,"Oli":129,"Christian":128,"closedBy":"","note":""},{"id":64,"date":"2025-01-10","Tor":112,"Oli":102,"Christian":123,"closedBy":"","note":""},{"id":65,"date":"2025-01-10","Tor":113,"Oli":129,"Christian":121,"closedBy":"","note":""},{"id":66,"date":"2025-02-22","Tor":141,"Oli":74,"Christian":162,"closedBy":"","note":""},{"id":67,"date":"2025-02-22","Tor":71,"Oli":31,"Christian":118,"closedBy":"","note":""},{"id":68,"date":"2025-02-22","Tor":82,"Oli":85,"Christian":141,"closedBy":"","note":""},{"id":69,"date":"2025-02-22","Tor":101,"Oli":96,"Christian":134,"closedBy":"","note":""},{"id":70,"date":"2025-02-22","Tor":85,"Oli":84,"Christian":124,"closedBy":"","note":""},{"id":71,"date":"2025-02-22","Tor":70,"Oli":135,"Christian":97,"closedBy":"","note":""},{"id":72,"date":"2025-02-22","Tor":105,"Oli":105,"Christian":119,"closedBy":"","note":""},{"id":73,"date":"2025-04-05","Tor":114,"Oli":66,"Christian":105,"closedBy":"","note":""},{"id":74,"date":"2025-04-05","Tor":89,"Oli":205,"Christian":131,"closedBy":"","note":""},{"id":75,"date":"2025-04-05","Tor":129,"Oli":113,"Christian":137,"closedBy":"","note":""},{"id":76,"date":"2025-04-05","Tor":27,"Oli":110,"Christian":118,"closedBy":"","note":"Tor fik ingen ruter!"},{"id":77,"date":"2025-04-05","Tor":112,"Oli":158,"Christian":164,"closedBy":"","note":""},{"id":78,"date":"2025-04-06","Tor":48,"Oli":71,"Christian":135,"closedBy":"","note":""},{"id":79,"date":"2025-06-20","Tor":96,"Oli":88,"Christian":126,"closedBy":"","note":""},{"id":80,"date":"2025-06-20","Tor":110,"Oli":35,"Christian":133,"closedBy":"","note":""},{"id":81,"date":"2025-06-20","Tor":111,"Oli":97,"Christian":137,"closedBy":"","note":""},{"id":82,"date":"2025-06-20","Tor":77,"Oli":86,"Christian":128,"closedBy":"","note":""},{"id":83,"date":"2025-06-20","Tor":148,"Oli":80,"Christian":125,"closedBy":"","note":""},{"id":84,"date":"2025-08-23","Tor":118,"Oli":144,"Christian":158,"closedBy":"","note":""},{"id":85,"date":"2025-08-23","Tor":118,"Oli":138,"Christian":153,"closedBy":"","note":""},{"id":86,"date":"2025-08-23","Tor":93,"Oli":140,"Christian":124,"closedBy":"","note":""},{"id":87,"date":"2025-08-23","Tor":117,"Oli":171,"Christian":155,"closedBy":"","note":""},{"id":88,"date":"2025-08-23","Tor":105,"Oli":80,"Christian":122,"closedBy":"","note":""},{"id":89,"date":"2025-08-23","Tor":66,"Oli":168,"Christian":148,"closedBy":"","note":""},{"id":90,"date":"2025-09-27","Tor":73,"Oli":151,"Christian":138,"closedBy":"","note":""},{"id":91,"date":"2025-09-27","Tor":51,"Oli":128,"Christian":132,"closedBy":"","note":""},{"id":92,"date":"2025-09-27","Tor":128,"Oli":127,"Christian":136,"closedBy":"","note":""},{"id":93,"date":"2025-09-27","Tor":136,"Oli":100,"Christian":120,"closedBy":"","note":""},{"id":94,"date":"2025-09-27","Tor":137,"Oli":133,"Christian":92,"closedBy":"","note":""},{"id":95,"date":"2025-09-27","Tor":127,"Oli":101,"Christian":126,"closedBy":"","note":""},{"id":96,"date":"2025-11-15","Tor":86,"Oli":121,"Christian":123,"closedBy":"","note":""},{"id":97,"date":"2025-11-15","Tor":111,"Oli":133,"Christian":136,"closedBy":"","note":""},{"id":98,"date":"2025-11-15","Tor":116,"Oli":126,"Christian":136,"closedBy":"","note":""},{"id":99,"date":"2025-11-15","Tor":153,"Oli":125,"Christian":149,"closedBy":"","note":""},{"id":100,"date":"2025-11-15","Tor":87,"Oli":155,"Christian":150,"closedBy":"","note":""},{"id":101,"date":"2026-01-17","Tor":132,"Oli":95,"Christian":114,"closedBy":"Christian","note":""},{"id":102,"date":"2026-01-17","Tor":131,"Oli":122,"Christian":136,"closedBy":"Oli","note":""},{"id":103,"date":"2026-01-17","Tor":113,"Oli":129,"Christian":136,"closedBy":"Christian","note":""},{"id":104,"date":"2026-01-17","Tor":106,"Oli":147,"Christian":104,"closedBy":"Christian","note":""},{"id":105,"date":"2026-01-17","Tor":120,"Oli":163,"Christian":164,"closedBy":"Oli","note":""},{"id":106,"date":"2026-01-17","Tor":139,"Oli":91,"Christian":138,"closedBy":"Christian","note":""}];
 
-// Init render from cache or initial data
-if (!localStorage.getItem('ttr_games')) {
-  games = INITIAL_GAMES;
-}
+// Vis cachedata med det samme mens offentlig fetch kører i baggrunden
+const _cached = localStorage.getItem('ttr_games');
+games = _cached ? JSON.parse(_cached) : INITIAL_GAMES;
 renderAll();
 </script>
 </body>
